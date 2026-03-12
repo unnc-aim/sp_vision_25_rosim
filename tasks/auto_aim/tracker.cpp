@@ -15,7 +15,8 @@ Tracker::Tracker(const std::string & config_path, Solver & solver)
   temp_lost_count_(0),
   state_{"lost"},
   pre_state_{"lost"},
-  last_timestamp_(std::chrono::steady_clock::now()),
+  last_timestamp_{},  // 默认初始化，由第一次 track() 调用设置
+  first_timestamp_received_(false),
   omni_target_priority_{ArmorPriority::fifth}
 {
   auto yaml = YAML::LoadFile(config_path);
@@ -24,6 +25,9 @@ Tracker::Tracker(const std::string & config_path, Solver & solver)
   max_temp_lost_count_ = yaml["max_temp_lost_count"].as<int>();
   outpost_max_temp_lost_count_ = yaml["outpost_max_temp_lost_count"].as<int>();
   normal_temp_lost_count_ = max_temp_lost_count_;
+  
+  // 仿真模式：允许接受 extinguish 颜色（仿真中灯光效果可能与实际不同）
+  accept_extinguish_ = yaml["accept_extinguish"].as<bool>(false);
 }
 
 std::string Tracker::state() const { return state_; }
@@ -31,6 +35,12 @@ std::string Tracker::state() const { return state_; }
 std::list<Target> Tracker::track(
   std::list<Armor> & armors, std::chrono::steady_clock::time_point t, bool use_enemy_color)
 {
+  // 首次时间戳处理：避免仿真时间与系统时间不一致导致的问题
+  if (!first_timestamp_received_) {
+    last_timestamp_ = t;
+    first_timestamp_received_ = true;
+  }
+  
   auto dt = tools::delta_time(t, last_timestamp_);
   last_timestamp_ = t;
 
@@ -40,7 +50,14 @@ std::list<Target> Tracker::track(
     state_ = "lost";
   }
   // 过滤掉非我方装甲板
-  armors.remove_if([&](const auto_aim::Armor & a) { return a.color != enemy_color_; });
+  // 仿真模式下，如果 accept_extinguish_ 为 true，则同时接受敌方颜色和灭灯状态
+  if (accept_extinguish_) {
+    armors.remove_if([&](const auto_aim::Armor & a) { 
+      return a.color != enemy_color_ && a.color != Color::extinguish; 
+    });
+  } else {
+    armors.remove_if([&](const auto_aim::Armor & a) { return a.color != enemy_color_; });
+  }
 
   // 过滤前哨站顶部装甲板
   // armors.remove_if([this](const auto_aim::Armor & a) {
@@ -105,6 +122,12 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
     temp_target = detection_queue.front();
   }
 
+  // 首次时间戳处理：避免仿真时间与系统时间不一致导致的问题
+  if (!first_timestamp_received_) {
+    last_timestamp_ = t;
+    first_timestamp_received_ = true;
+  }
+  
   auto dt = tools::delta_time(t, last_timestamp_);
   last_timestamp_ = t;
 
@@ -241,22 +264,22 @@ bool Tracker::set_target(std::list<Armor> & armors, std::chrono::steady_clock::t
                      armor.name == ArmorName::five);
 
   if (is_balance) {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
+    Eigen::VectorXd P0_dig{{0.1, 1, 0.1, 1, 0.1, 1, 0.1, 1, 0.1, 0.1, 0.1}};  // 减小初始协方差
     target_ = Target(armor, t, 0.2, 2, P0_dig);
   }
 
   else if (armor.name == ArmorName::outpost) {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 81, 0.4, 100, 1e-4, 0, 0}};
+    Eigen::VectorXd P0_dig{{0.1, 1, 0.1, 1, 0.1, 1, 0.1, 1, 1e-4, 0, 0}};
     target_ = Target(armor, t, 0.2765, 3, P0_dig);
   }
 
   else if (armor.name == ArmorName::base) {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1e-4, 0, 0}};
+    Eigen::VectorXd P0_dig{{0.1, 1, 0.1, 1, 0.1, 1, 0.1, 1, 1e-4, 0, 0}};
     target_ = Target(armor, t, 0.3205, 3, P0_dig);
   }
 
   else {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
+    Eigen::VectorXd P0_dig{{0.1, 1, 0.1, 1, 0.1, 1, 0.1, 1, 0.1, 0.1, 0.1}};  // 减小初始协方差
     target_ = Target(armor, t, 0.2, 4, P0_dig);
   }
 

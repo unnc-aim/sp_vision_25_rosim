@@ -32,6 +32,7 @@ public:
 private:
   Solver & solver_;
   Color enemy_color_;
+  bool accept_extinguish_;  // 仿真模式：接受灭灯状态的装甲板
   int min_detect_count_;
   int max_temp_lost_count_;
   int detect_count_;
@@ -41,6 +42,7 @@ private:
   std::string state_, pre_state_;
   Target target_;
   std::chrono::steady_clock::time_point last_timestamp_;
+  bool first_timestamp_received_;  // 第一个时间戳是否已接收
   ArmorPriority omni_target_priority_;
 
   void state_machine(bool found);

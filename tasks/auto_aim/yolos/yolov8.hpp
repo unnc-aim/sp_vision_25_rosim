@@ -33,7 +33,8 @@ private:
   std::string save_path_, debug_path_;
   bool debug_, use_roi_;
 
-  const int class_num_ = 2;
+  int class_num_ = 2;      // 类别数量，从配置文件读取
+  int input_size_ = 416;  // 输入尺寸，从配置文件读取
   const float nms_threshold_ = 0.3;
   const float score_threshold_ = 0.7;
   double min_confidence_, binary_threshold_;

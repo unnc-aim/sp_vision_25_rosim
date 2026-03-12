@@ -1,0 +1,177 @@
+# ============================================================================
+# 仿真环境配置文件 (sim_standard.yaml) - 步兵
+# ============================================================================
+# 【说明】
+# 此配置文件用于在 Gazebo 仿真环境中运行步兵视觉程序
+# 与 sim_sentry.yaml 的主要区别：
+#   1. auto_aim_enabled 默认为 false（需要操作手右键激活）
+#   2. 配置了 auto_aim_activate_topic 用于接收激活指令
+# ============================================================================
+
+# ======================== 【新增 - 仿真模式】 ========================
+# 仿真相机配置
+camera_name: "simulation"  # 特殊值，表示使用仿真驱动而非硬件驱动
+
+# ROS2 话题配置 - 输入
+image_topic: "/red_standard_robot1/front_industrial_camera/image"
+imu_topic: "/red_standard_robot1/livox/imu"
+
+# 云台状态话题（推荐使用，比 IMU 更准确）
+# 仿真器的 gimbal_state 话题直接提供 yaw/pitch 角度
+gimbal_state_topic: "/red_standard_robot1/robot_base/gimbal_state"
+
+# ROS2 话题配置 - 输出（控制指令）
+# gimbal_cmd_topic: 云台控制话题，发布 rmoss_interfaces/msg/GimbalCmd
+# shoot_cmd_topic: 射击控制话题，发布 rmoss_interfaces/msg/ShootCmd
+# 注意：使用 robot_base/ 前缀的话题，这是 rmoss_gz_base 的标准接口
+gimbal_cmd_topic: "/red_standard_robot1/robot_base/gimbal_cmd"
+shoot_cmd_topic: "/red_standard_robot1/robot_base/shoot_cmd"
+
+# ======================== 【新增 - 仿真参数】 ========================
+# 仿真弹速 (m/s)：用于弹道计算
+# 实车从下位机获取，仿真需要手动设置（应与仿真器物理参数匹配）
+sim_bullet_speed: 18.0
+
+# ======================== 【步兵特有 - 自瞄激活控制】 ========================
+# 自瞄激活状态：步兵默认为 false（需要操作手右键激活）
+# 哨兵设为 true（自动运行，无需操作手）
+auto_aim_enabled: false
+
+# 自瞄激活话题：接收操作手终端的激活指令 (std_msgs/Bool)
+# 当操作手按下右键时，发布 true；松开时发布 false
+# 步兵配置此项，哨兵不需要
+auto_aim_activate_topic: "/red_standard_robot1/auto_aim_activate"
+
+# 自瞄状态发布话题：发布自瞄状态给 player_web (vision_interfaces/AutoAim)
+# player_web 订阅此话题来获取瞄准角度和射击信号
+auto_aim_cmd_topic: "/red_standard_robot1/auto_aim_cmd"
+
+# 仿真颜色兼容：接受灭灯状态的装甲板
+# 原因：仿真中装甲板灯光效果与真实环境不同，模型可能将其识别为灭灯状态
+# 设为 true 后，除敌方颜色外还会接受 extinguish 状态
+accept_extinguish: true
+
+# ======================== 【新增 - 坐标系转换】 ========================
+# R_sim2real: 仿真 IMU 坐标系 → 实车 IMU 坐标系的旋转矩阵 (行优先, 3x3)
+# 
+# 【坐标系说明】
+#   Gazebo 默认使用 ENU 坐标系:
+#     X - 前 (East/Forward)
+#     Y - 左 (North/Left)
+#     Z - 上 (Up)
+#   
+#   实车 IMU 坐标系取决于安装方式，常见配置:
+#     - 与 Gazebo 相同 (ENU): 使用单位矩阵
+#     - NED 坐标系: X-前, Y-右, Z-下
+#
+R_sim2real: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+# ======================== 【保留 - 相机参数】 ========================
+# 虽然仿真不需要这些硬件参数，但保留以兼容现有代码
+exposure_ms: 5.0
+gamma: 1.0
+usb_exposure: 50
+usb_frame_rate: 30
+usb_gamma: 1.0
+usb_gain: 0
+
+# ======================== 【保留 - CAN 参数】 ========================
+# 仿真模式下这些参数不使用，但保留以避免加载错误
+can_interface: "vcan0"
+quaternion_canid: 0x211
+bullet_speed_canid: 0x212
+send_canid: 0x210
+
+# ======================== 【原有配置】 ========================
+# 以下内容与 standard.yaml 相同
+
+# 敌方颜色
+enemy_color: "blue"
+
+# YOLO 配置（使用标准 yolov5 模型）
+yolo_name: yolov5
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/yolov5.xml
+device: CPU
+min_confidence: 0.25
+use_traditional: false
+
+# 传统方法参数（use_traditional=false时不使用，但代码会读取）
+threshold: 150
+max_angle_error: 45 # degree
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25 # degree
+
+# ROI配置（仿真不使用，但代码会读取）
+roi: 
+  x: 0
+  y: 0
+  width: 1920
+  height: 1080
+use_roi: false
+
+# 图像尺寸
+image_width: 1920
+image_height: 1080
+
+# ======================== 【相机标定参数】 ========================
+# 求解器配置（使用仿真相机的实际内参）
+camera_matrix: [
+  1757.27, 0, 960,
+  0, 1757.27, 540,
+  0, 0, 1
+]
+
+dist_coeffs: [0, 0, 0, 0, 0]
+distort_coeffs: [0, 0, 0, 0, 0]
+
+# 装甲板尺寸 (m)
+armor_width: 0.135
+armor_height: 0.11
+
+# ======================== 【Tracker 参数】 ========================
+min_detect_count: 5
+max_temp_lost_count: 25
+outpost_max_temp_lost_count: 75
+
+# ======================== 【Aimer 参数】 ========================
+yaw_offset: 0 # degree
+pitch_offset: 0  # degree
+comming_angle: 60 # degree
+leaving_angle: 20 # degree
+left_yaw_offset: 0
+right_yaw_offset: 0
+decision_speed: 10 # rad/s
+high_speed_delay_time: 0.026 # s
+low_speed_delay_time: 0.010 # s
+
+# ======================== 【Shooter 参数】 ========================
+first_tolerance: 5 # 近距离射击容差，degree
+second_tolerance: 2 # 远距离射击容差，degree
+judge_distance: 3 #距离判断阈值
+auto_fire: true # 是否由自瞄控制射击
+
+# ======================== 【坐标系变换矩阵】 ========================
+# 相机标定参数（仿真相机，用理想值）
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+R_camera2gimbal: [0, 0, 1, -1, 0, 0, 0, -1, 0]
+t_camera2gimbal: [0.15, 0, 0.1]
+
+# ======================== 【Tracker EKF 参数】 ========================
+tracker:
+  ekf:
+    r_xyz: 0.05
+    r_yaw: 0.02
+    q_xyz: 0.1
+    q_yaw: 0.3
+    q_r: 50
+  match_distance: 0.7   # 米
+  lost_threshold: 5     # 连续丢失多少帧后认为目标丢失
+  armor_type_threshold: 5

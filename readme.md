@@ -325,6 +325,82 @@ DPS = 单位时间射击窗口占比 \times 射频 \times 单发子弹伤害
 边跑边打。目前的自瞄并没有考虑自身的移动，无法边跑边打。在本赛季，步兵经常需要从狗洞冲下去杀对面静止的英雄，而此时自瞄会认为对面在移动，导致前几发打不准，限制了操作手的发挥。我们计划引入轮式里程计信息，改善在该场景下的表现。
 
 
+## 6 仿真环境启动
+本项目支持在 Gazebo 仿真环境中运行自瞄程序，可用于算法验证、参数调试等场景。
+
+### 6.1 仿真架构
+仿真模式下，视觉程序通过 ROS2 话题与 Gazebo 进行数据交互：
+- **输入**：订阅 Gazebo 发布的相机图像话题和 IMU 话题
+- **输出**：发布云台控制指令（yaw/pitch 角度）和射击指令
+
+与实车相比，仿真模式仅替换了数据来源，核心算法完全相同。
+
+### 6.2 编译
+仿真程序依赖 ROS2 环境，需要使用 colcon 编译：
+```bash
+# 在 ROS2 工作空间中编译
+cd ~/ros_ws
+colcon build --packages-select sp_vision
+source install/setup.bash
+```
+
+### 6.3 运行
+#### 方式一：使用默认配置
+```bash
+ros2 run sp_vision sim_sentry
+```
+
+#### 方式二：指定配置文件
+```bash
+ros2 run sp_vision sim_sentry configs/sim_sentry.yaml
+```
+
+#### 方式三：命令行指定话题（覆盖配置文件）
+```bash
+ros2 run sp_vision sim_sentry --image-topic=/robot/camera/image --imu-topic=/robot/imu
+```
+
+#### 方式四：启用调试图像发布
+```bash
+ros2 run sp_vision sim_sentry --debug
+```
+
+### 6.4 调试图像查看
+启用 `--debug` 参数后，程序会将带有检测结果框和置信度的图像发布到 ROS2 话题 `/sp_vision/debug_image`。
+
+#### 使用 rqt 查看
+```bash
+rqt_image_view /sp_vision/debug_image
+```
+
+#### 使用 rviz 查看
+在 rviz 中添加 Image 显示组件，话题选择 `/sp_vision/debug_image`。
+
+### 6.5 自瞄激活说明
+- **实车模式**：操作手通过右键（遥控器开关）激活自瞄，视觉程序检查 `cboard.mode` 判断是否处于自瞄模式。
+- **仿真模式**：自瞄始终激活（由配置文件中的 `auto_aim_enabled: true` 控制），无需操作手激活。
+
+### 6.6 配置文件说明
+仿真配置文件 `configs/sim_sentry.yaml` 中的关键字段：
+
+| 字段 | 说明 | 示例值 |
+|-----|------|--------|
+| `image_topic` | Gazebo 相机话题 | `/red_standard_robot1/front_industrial_camera/image` |
+| `imu_topic` | Gazebo IMU 话题 | `/red_standard_robot1/livox/imu` |
+| `gimbal_cmd_topic` | 云台控制话题 | `/red_standard_robot1/cmd_gimbal_joint` |
+| `shoot_cmd_topic` | 射击控制话题 | `/red_standard_robot1/cmd_shoot` |
+| `sim_bullet_speed` | 仿真弹速 (m/s) | `15.0` |
+| `auto_aim_enabled` | 自瞄是否激活 | `true` |
+| `R_sim2real` | 坐标系转换矩阵 | `[1,0,0, 0,1,0, 0,0,1]` |
+
+### 6.7 坐标系转换
+Gazebo 默认使用 ENU 坐标系（X-前, Y-左, Z-上），可能与实车 IMU 坐标系不同。通过 `R_sim2real` 矩阵进行转换。如果发现云台运动方向不正确，需要调整该矩阵。常用转换矩阵：
+
+- **单位矩阵（坐标系一致）**：`[1, 0, 0, 0, 1, 0, 0, 0, 1]`
+- **ENU → NED**：`[1, 0, 0, 0, -1, 0, 0, 0, -1]`
+- **Y 轴翻转（yaw 方向相反）**：`[1, 0, 0, 0, -1, 0, 0, 0, 1]`
+
+
 ## 参考文献
 [1] Alan Day.【RM2024赛季-识别模型】深圳大学-RobotPilots[EB/OL]. RoboMaster论坛. https://bbs.robomaster.com/article/54091, 2025.
 

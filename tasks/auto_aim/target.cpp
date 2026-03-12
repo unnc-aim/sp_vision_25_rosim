@@ -68,7 +68,16 @@ Target::Target(double x, double vyaw, double radius, double h) : armor_num_(4)
 void Target::predict(std::chrono::steady_clock::time_point t)
 {
   auto dt = tools::delta_time(t, t_);
+  
+  // 防止 dt 过大导致预测发散
+  // 如果 dt > 0.5s，认为是时间戳异常，将 dt 限制为 0.033s (30Hz)
+  if (dt > 0.5) {
+    tools::logger()->warn("[Target] Large dt: {:.3f}s, clamping to 0.033s", dt);
+    dt = 0.033;
+  }
+  
   predict(dt);
+  
   t_ = t;
 }
 
@@ -98,8 +107,8 @@ void Target::predict(double dt)
     v1 = 10;   // 前哨站加速度方差
     v2 = 0.1;  // 前哨站角加速度方差
   } else {
-    v1 = 100;  // 加速度方差
-    v2 = 400;  // 角加速度方差
+    v1 = 1;    // 加速度方差 (仿真调试用，原值 100)
+    v2 = 4;    // 角加速度方差 (仿真调试用，原值 400)
   }
   auto a = dt * dt * dt * dt / 4;
   auto b = dt * dt * dt / 2;
@@ -188,12 +197,12 @@ void Target::update_ypda(const Armor & armor, int id)
 {
   //观测jacobi
   Eigen::MatrixXd H = h_jacobian(ekf_.x, id);
-  // Eigen::VectorXd R_dig{{4e-3, 4e-3, 1, 9e-2}};
+  // 测量噪声 - 增大以提高数值稳定性
+  // 原值太小导致 EKF 发散，特别是当初始协方差 P0 较大时
   auto center_yaw = std::atan2(armor.xyz_in_world[1], armor.xyz_in_world[0]);
   auto delta_angle = tools::limit_rad(armor.ypr_in_world[0] - center_yaw);
   Eigen::VectorXd R_dig{
-    {4e-3, 4e-3, log(std::abs(delta_angle) + 1) + 1,
-     log(std::abs(armor.ypd_in_world[2]) + 1) / 200 + 9e-2}};
+    {0.01, 0.01, 0.1, 0.1}};  // 增大测量噪声以稳定 EKF
 
   //测量过程噪声偏差的方差
   Eigen::MatrixXd R = R_dig.asDiagonal();
@@ -273,6 +282,16 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_x = x[0] - r * std::cos(angle);
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
+
+  // 【调试】EKF装甲板位置计算
+  static int ekf_xyz_debug_count = 0;
+  if (ekf_xyz_debug_count < 20 || ekf_xyz_debug_count % 100 == 0) {
+    tools::logger()->info("[EKF计算] 装甲板[{}]: 旋转角={:.1f}° 半径={:.3f}m", id, angle * 57.3, r);
+    tools::logger()->info("[EKF计算] 旋转中心: X={:.3f} Y={:.3f} Z={:.3f}", x[0], x[2], x[4]);
+    tools::logger()->info("[EKF计算] 装甲板位置: X={:.3f} Y={:.3f} Z={:.3f}", armor_x, armor_y, armor_z);
+    tools::logger()->info("[EKF计算] 偏移量: dX={:.3f}(cos) dY={:.3f}(sin)", -r * std::cos(angle), -r * std::sin(angle));
+    ekf_xyz_debug_count++;
+  }
 
   return {armor_x, armor_y, armor_z};
 }

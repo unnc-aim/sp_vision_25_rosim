@@ -1,0 +1,101 @@
+# ============================================================================
+# 实车 ROS2 模式配置文件 (ros_sentry.yaml)
+# ============================================================================
+# 【说明】
+# 此配置文件用于在实车上通过 ROS2 话题方式运行视觉程序
+# 复用仿真模式的 SimBoard，但话题名配置为实车接口
+# 
+# 【前提条件】
+# 需要有一个下位机 ROS2 桥接节点（如 pb_rm_interface），提供：
+#   - 云台状态话题（yaw/pitch）
+#   - 云台控制话题（GimbalCmd）
+#   - 射击控制话题（ShootCmd）
+# ============================================================================
+
+# ======================== 【相机配置】 ========================
+# 实车相机配置 - 使用实际的工业相机驱动
+# 如果使用 ROS2 图像话题，将 camera_name 设为 "simulation"
+camera_name: "simulation"  # 使用 ROS2 图像话题
+
+# ROS2 图像话题（实车相机节点发布的话题）
+# 需要根据实际相机驱动的话题名修改
+image_topic: "/hik_camera/image_raw"
+
+# IMU 话题（如果使用 IMU 而非 gimbal_state）
+imu_topic: "/livox/imu"
+
+# ======================== 【云台通信配置】 ========================
+# 云台状态话题 - 从下位机接收当前云台角度
+# 格式：rmoss_interfaces/msg/Gimbal 或兼容格式
+gimbal_state_topic: "/gimbal/state"
+
+# 云台控制话题 - 发送目标角度到下位机
+# 格式：rmoss_interfaces/msg/GimbalCmd
+gimbal_cmd_topic: "/gimbal/cmd"
+
+# 射击控制话题 - 发送射击指令到下位机
+# 格式：rmoss_interfaces/msg/ShootCmd
+shoot_cmd_topic: "/shoot/cmd"
+
+# ======================== 【弹速配置】 ========================
+# 实车弹速 (m/s)
+# 注意：实车上应该从下位机实时获取弹速
+# 这里的值作为默认值/备用值
+sim_bullet_speed: 28.0
+
+# 自瞄激活状态
+# 实车上可以设为 true（始终激活）或通过其他方式控制
+auto_aim_enabled: true
+
+# 颜色兼容：实车上通常设为 false
+accept_extinguish: false
+
+# ======================== 【坐标系配置】 ========================
+# R_sim2real: 如果 gimbal_state 话题给的是世界系角度，设为单位矩阵
+# 如果给的是相对于底盘的角度，也设为单位矩阵（与仿真相同）
+R_sim2real: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+# ======================== 【敌方颜色】 ========================
+enemy_color: "blue"
+
+# ======================== 【检测器配置】 ========================
+model_path: "models/yolo.onnx"
+confidence_thresh: 0.70
+
+# ======================== 【相机标定参数】 ========================
+# 【重要】以下参数需要根据实车相机标定结果修改！
+camera_matrix: [2304.85, 0, 960, 0, 2305.28, 540, 0, 0, 1]
+distort_coeffs: [-0.0843, 0.1132, -0.00014, 0.00024, 0]
+
+# 云台到 IMU 的旋转矩阵
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+# 相机到云台的旋转矩阵和平移向量
+R_camera2gimbal: [0, 0, 1, -1, 0, 0, 0, -1, 0]
+t_camera2gimbal: [0.15, 0, 0.1]
+
+# ======================== 【装甲板尺寸】 ========================
+armor_width: 0.135
+armor_height: 0.11
+
+# ======================== 【跟踪器配置】 ========================
+min_detect_count: 5
+max_temp_lost_count: 25
+outpost_max_temp_lost_count: 75
+
+# ======================== 【aimer 参数】 ========================
+yaw_offset: 0
+pitch_offset: 0
+comming_angle: 60
+leaving_angle: 20
+left_yaw_offset: 0
+right_yaw_offset: 0
+decision_speed: 10
+high_speed_delay_time: 0.026
+low_speed_delay_time: 0.010
+
+# ======================== 【shooter 参数】 ========================
+first_tolerance: 5
+second_tolerance: 2
+judge_distance: 3
+auto_fire: true

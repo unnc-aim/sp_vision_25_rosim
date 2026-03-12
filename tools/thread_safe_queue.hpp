@@ -98,6 +98,41 @@ public:
     not_empty_condition_.notify_all();  // 如果其他线程正在等待队列不为空，这样可以唤醒它们
   }
 
+  // 带超时的 pop，返回 true 表示成功取出数据，false 表示超时
+  template <class Rep, class Period>
+  bool try_pop(T & value, const std::chrono::duration<Rep, Period> & timeout)
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    if (!not_empty_condition_.wait_for(lock, timeout, [this] { return !queue_.empty(); })) {
+      return false;  // 超时
+    }
+
+    value = queue_.front();
+    queue_.pop();
+    return true;
+  }
+
+  // 非阻塞 pop，立即返回。返回 true 表示成功取出数据，false 表示队列为空
+  bool try_pop_nowait(T & value)
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    if (queue_.empty()) {
+      return false;
+    }
+
+    value = queue_.front();
+    queue_.pop();
+    return true;
+  }
+
+  // 中断所有等待中的 pop 操作
+  void interrupt()
+  {
+    not_empty_condition_.notify_all();
+  }
+
 private:
   std::queue<T> queue_;
   size_t max_size_;

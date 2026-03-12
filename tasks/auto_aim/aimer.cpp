@@ -60,6 +60,21 @@ io::Command Aimer::aim(
 
   auto aim_point0 = choose_aim_point(target);
   debug_aim_point = aim_point0;
+  
+  // 【调试】瞄准点选择结果
+  static int aim_debug_count = 0;
+  if (aim_debug_count < 30 || aim_debug_count % 50 == 0) {
+    if (aim_point0.valid) {
+      Eigen::Vector3d ypd = tools::xyz2ypd(aim_point0.xyza.head(3));
+      tools::logger()->info("[瞄准] ===== 瞄准点计算 =====");
+      tools::logger()->info("[瞄准] 目标位置: X={:.3f}m Y={:.3f}m Z={:.3f}m",
+        aim_point0.xyza[0], aim_point0.xyza[1], aim_point0.xyza[2]);
+      tools::logger()->info("[瞄准] 目标角度: yaw={:.2f}° pitch={:.2f}° 距离={:.2f}m",
+        ypd[0] * 57.3, ypd[1] * 57.3, ypd[2]);
+    }
+    aim_debug_count++;
+  }
+  
   if (!aim_point0.valid) {
     // tools::logger()->debug("Invalid aim_point0.");
     return {false, false, 0, 0};
@@ -67,6 +82,7 @@ io::Command Aimer::aim(
 
   Eigen::Vector3d xyz0 = aim_point0.xyza.head(3);
   auto d0 = std::sqrt(xyz0[0] * xyz0[0] + xyz0[1] * xyz0[1]);
+  
   tools::Trajectory trajectory0(bullet_speed, d0, xyz0[2]);
   if (trajectory0.unsolvable) {
     tools::logger()->debug(
@@ -115,10 +131,30 @@ io::Command Aimer::aim(
     prev_fly_time = current_traj.fly_time;
   }
 
+  // 【调试】弹道计算结果
+  static int traj_debug_count = 0;
+  if (traj_debug_count < 30 || traj_debug_count % 50 == 0) {
+    tools::logger()->info("[弹道] 弹速={:.1f}m/s 飞行时间={:.3f}s 收敛={}",
+      bullet_speed, current_traj.fly_time, converged ? "是" : "否");
+    traj_debug_count++;
+  }
+
   // 计算最终角度
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
+
+  // 【调试】最终控制指令
+  static int cmd_debug_count = 0;
+  if (cmd_debug_count < 30 || cmd_debug_count % 50 == 0) {
+    tools::logger()->info("[控制] ===== 最终输出 =====");
+    tools::logger()->info("[控制] 瞄准位置: X={:.3f} Y={:.3f} Z={:.3f}", final_xyz[0], final_xyz[1], final_xyz[2]);
+    tools::logger()->info("[控制] 原始角度: yaw={:.2f}° (atan2) pitch={:.2f}° (弹道)",
+      std::atan2(final_xyz.y(), final_xyz.x()) * 57.3, current_traj.pitch * 57.3);
+    tools::logger()->info("[控制] 最终指令: yaw={:.2f}° pitch={:.2f}° (注意pitch取负)", yaw * 57.3, pitch * 57.3);
+    cmd_debug_count++;
+  }
+
   return {true, false, yaw, pitch};
 }
 

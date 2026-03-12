@@ -16,7 +16,9 @@ public:
 
   Eigen::Matrix3d R_gimbal2world() const;
 
-  void set_R_gimbal2world(const Eigen::Quaterniond & q);
+  // is_direct_gimbal2world: 如果为 true，四元数已经是 gimbal 到 world 的直接旋转
+  // 如果为 false（默认），需要通过 R_gimbal2imubody 变换
+  void set_R_gimbal2world(const Eigen::Quaterniond & q, bool is_direct_gimbal2world = false);
 
   void solve(Armor & armor) const;
 

@@ -19,6 +19,17 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR})
 
+# ROS2 Dependencies - STANDARD AMENT PACKAGE STRUCTURE
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(rosidl_typesupport_cpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(rmoss_interfaces REQUIRED)
+find_package(vision_interfaces REQUIRED)
+find_package(sp_msgs QUIET)
 
 add_subdirectory(tools)
 add_subdirectory(io)
@@ -102,30 +113,74 @@ target_link_libraries(planner_test ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim too
 add_executable(planner_test_offline tests/planner_test_offline.cpp)
 target_link_libraries(planner_test_offline ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim tools io)
 
-# 检查 ROS 环境
-find_package(ament_cmake QUIET)
-find_package(rclcpp QUIET)
-find_package(std_msgs QUIET)
-find_package(rosidl_typesupport_cpp QUIET)
-find_package(sp_msgs QUIET)
-# 只有在找到 ROS 环境时才会添加 sentry 和 publish_test
-if(ament_cmake_FOUND AND rclcpp_FOUND AND std_msgs_FOUND AND rosidl_typesupport_cpp_FOUND AND sp_msgs_FOUND)
-    # 编译 sentry 和 publish_test
-    add_executable(sentry src/sentry.cpp)
-    add_executable(sentry_bp src/sentry_bp.cpp)
-    add_executable(sentry_debug src/sentry_debug.cpp)
-    add_executable(sentry_multithread src/sentry_multithread.cpp)
-    add_executable(publish_test tests/publish_test.cpp)
-    add_executable(subscribe_test tests/subscribe_test.cpp)
-    add_executable(topic_loop_test tests/topic_loop_test.cpp)
 
-    target_link_libraries(sentry ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
-    target_link_libraries(sentry_bp ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
-    target_link_libraries(sentry_debug ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
-    target_link_libraries(sentry_multithread ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
-    target_link_libraries(publish_test ${OpenCV_LIBS} fmt::fmt tools io auto_aim)
-    target_link_libraries(subscribe_test ${OpenCV_LIBS} fmt::fmt tools io)
-    target_link_libraries(topic_loop_test ${OpenCV_LIBS} fmt::fmt tools io)
+# sim_sentry (Gazebo/ROS2 simulation) does not require sp_msgs
+add_executable(sim_sentry src/sim_sentry.cpp)
+target_link_libraries(sim_sentry ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim tools io)
+ament_target_dependencies(sim_sentry rclcpp std_msgs sensor_msgs cv_bridge rosidl_typesupport_cpp ament_index_cpp rmoss_interfaces vision_interfaces)
+
+
+# sentry* and some tests require sp_msgs (nav interface)
+if(sp_msgs_FOUND)
+  add_executable(sentry src/sentry.cpp)
+  add_executable(sentry_bp src/sentry_bp.cpp)
+  add_executable(sentry_debug src/sentry_debug.cpp)
+  add_executable(sentry_multithread src/sentry_multithread.cpp)
+
+  target_link_libraries(sentry ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
+  target_link_libraries(sentry_bp ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
+  target_link_libraries(sentry_debug ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
+  target_link_libraries(sentry_multithread ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim omniperception tools io)
+
+  foreach(target sentry sentry_bp sentry_debug sentry_multithread)
+    ament_target_dependencies(${target} rclcpp std_msgs sensor_msgs cv_bridge rosidl_typesupport_cpp sp_msgs)
+  endforeach()
+
+  add_executable(topic_loop_test tests/topic_loop_test.cpp)
+  target_link_libraries(topic_loop_test ${OpenCV_LIBS} fmt::fmt tools io)
+  ament_target_dependencies(topic_loop_test rclcpp std_msgs sensor_msgs cv_bridge rosidl_typesupport_cpp sp_msgs)
+
+  # ROS2 utility tests (depend on io::ROS2 -> sp_msgs)
+  add_executable(publish_test tests/publish_test.cpp)
+  add_executable(subscribe_test tests/subscribe_test.cpp)
+  target_link_libraries(publish_test ${OpenCV_LIBS} fmt::fmt tools io auto_aim)
+  target_link_libraries(subscribe_test ${OpenCV_LIBS} fmt::fmt tools io)
+  foreach(target publish_test subscribe_test)
+    ament_target_dependencies(${target} rclcpp std_msgs sensor_msgs cv_bridge rosidl_typesupport_cpp sp_msgs)
+  endforeach()
 else()
-    message(STATUS "ROS2 environment not found, skipping ROS2-related code.")
+  message(WARNING "sp_msgs not found: skipping sentry* and topic_loop_test (nav interface)")
 endif()
+
+
+# Install rules
+install(TARGETS
+  sim_sentry
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+if(sp_msgs_FOUND)
+  install(TARGETS
+    sentry
+    sentry_bp
+    sentry_debug
+    sentry_multithread
+    publish_test
+    subscribe_test
+    topic_loop_test
+    DESTINATION lib/${PROJECT_NAME}
+  )
+endif()
+
+# NOTE: ament_cmake symlink install doesn't support FILES_MATCHING;
+# using it forces fallback to CMake's native install() and avoids recursion.
+install(DIRECTORY configs/
+  DESTINATION share/${PROJECT_NAME}/configs
+  FILES_MATCHING PATTERN "*"
+)
+install(DIRECTORY assets/
+  DESTINATION share/${PROJECT_NAME}/assets
+  FILES_MATCHING PATTERN "*"
+)
+
+ament_package()

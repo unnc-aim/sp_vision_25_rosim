@@ -5,6 +5,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <random>
 
@@ -23,6 +24,15 @@ YOLOV8::YOLOV8(const std::string & config_path, bool debug)
   device_ = yaml["device"].as<std::string>();
   binary_threshold_ = yaml["threshold"].as<double>();
   min_confidence_ = yaml["min_confidence"].as<double>();
+  
+  // 可选参数：输入尺寸和类别数量（用于支持不同模型）
+  if (yaml["yolov8_input_size"]) {
+    input_size_ = yaml["yolov8_input_size"].as<int>();
+  }
+  if (yaml["yolov8_class_num"]) {
+    class_num_ = yaml["yolov8_class_num"].as<int>();
+  }
+  tools::logger()->info("[YOLOv8] 模型: {}, 输入尺寸: {}, 类别数: {}", model_path_, input_size_, class_num_);
   int x = 0, y = 0, width = 0, height = 0;
   x = yaml["roi"]["x"].as<int>();
   y = yaml["roi"]["y"].as<int>();
@@ -41,7 +51,7 @@ YOLOV8::YOLOV8(const std::string & config_path, bool debug)
 
   input.tensor()
     .set_element_type(ov::element::u8)
-    .set_shape({1, 416, 416, 3})
+    .set_shape({1, static_cast<size_t>(input_size_), static_cast<size_t>(input_size_), 3})
     .set_layout("NHWC")
     .set_color_format(ov::preprocess::ColorFormat::BGR);
 
@@ -78,17 +88,17 @@ std::list<Armor> YOLOV8::detect(const cv::Mat & raw_img, int frame_count)
     bgr_img = raw_img;
   }
 
-  auto x_scale = static_cast<double>(416) / bgr_img.rows;
-  auto y_scale = static_cast<double>(416) / bgr_img.cols;
+  auto x_scale = static_cast<double>(input_size_) / bgr_img.rows;
+  auto y_scale = static_cast<double>(input_size_) / bgr_img.cols;
   auto scale = std::min(x_scale, y_scale);
   auto h = static_cast<int>(bgr_img.rows * scale);
   auto w = static_cast<int>(bgr_img.cols * scale);
 
   // preproces
-  auto input = cv::Mat(416, 416, CV_8UC3, cv::Scalar(0, 0, 0));
+  auto input = cv::Mat(input_size_, input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
   auto roi = cv::Rect(0, 0, w, h);
   cv::resize(bgr_img, input(roi), {w, h});
-  ov::Tensor input_tensor(ov::element::u8, {1, 416, 416, 3}, input.data);
+  ov::Tensor input_tensor(ov::element::u8, {1, static_cast<size_t>(input_size_), static_cast<size_t>(input_size_), 3}, input.data);
 
   /// infer
   auto infer_request = compiled_model_.create_infer_request();
@@ -106,7 +116,7 @@ std::list<Armor> YOLOV8::detect(const cv::Mat & raw_img, int frame_count)
 std::list<Armor> YOLOV8::parse(
   double scale, cv::Mat & output, const cv::Mat & bgr_img, int frame_count)
 {
-  // for each row: xywh + classess
+  // for each row: xywh (4) + classes (class_num_) + keypoints (8)
   cv::transpose(output, output);
 
   std::vector<int> ids;
@@ -116,13 +126,23 @@ std::list<Armor> YOLOV8::parse(
   for (int r = 0; r < output.rows; r++) {
     auto xywh = output.row(r).colRange(0, 4);
     auto scores = output.row(r).colRange(4, 4 + class_num_);
-    auto one_key_points = output.row(r).colRange(4 + class_num_, 14);
+    auto one_key_points = output.row(r).colRange(4 + class_num_, 4 + class_num_ + 8);
 
     std::vector<cv::Point2f> armor_key_points;
 
-    double score;
+    double max_score;
     cv::Point max_point;
-    cv::minMaxLoc(scores, nullptr, &score, nullptr, &max_point);
+    cv::minMaxLoc(scores, nullptr, &max_score, nullptr, &max_point);
+    
+    // 注意：不同模型输出格式不同
+    // - yolov5.xml / yolov8.xml：输出已经是 sigmoid 后的概率 (0-1)
+    // - best2-sim.onnx：输出是 logits，需要 sigmoid 转换
+    // 这里根据输出值范围自动判断是否需要 sigmoid
+    double score = max_score;
+    if (max_score > 1.0 || max_score < 0.0) {
+      // 输出值不在 [0, 1] 范围，说明是 logits，需要 sigmoid
+      score = 1.0 / (1.0 + std::exp(-max_score));
+    }
 
     if (score < score_threshold_) continue;
 

@@ -107,6 +107,23 @@ std::list<Armor> YOLOV5::parse(
   std::vector<float> confidences;
   std::vector<cv::Rect> boxes;
   std::vector<std::vector<cv::Point2f>> armors_key_points;
+  
+  // 调试：找出最大置信度
+  static int debug_count = 0;
+  double max_conf_before_sigmoid = 0;
+  double max_conf_after_sigmoid = 0;
+  for (int r = 0; r < output.rows; r++) {
+    double raw_score = output.at<float>(r, 8);
+    double score = sigmoid(raw_score);
+    if (raw_score > max_conf_before_sigmoid) max_conf_before_sigmoid = raw_score;
+    if (score > max_conf_after_sigmoid) max_conf_after_sigmoid = score;
+  }
+  if (debug_count < 5) {
+    tools::logger()->info("[YOLOv5 Debug] output shape: [{}x{}], max_conf: {:.4f} (raw: {:.4f}), threshold: {:.2f}",
+                          output.rows, output.cols, max_conf_after_sigmoid, max_conf_before_sigmoid, score_threshold_);
+    debug_count++;
+  }
+  
   for (int r = 0; r < output.rows; r++) {
     double score = output.at<float>(r, 8);
     score = sigmoid(score);
@@ -125,6 +142,13 @@ std::list<Armor> YOLOV5::parse(
     cv::minMaxLoc(color_scores, NULL, &score_color, NULL, &color_id);
     _class_id = class_id.x;
     _color_id = color_id.x;
+    
+    // 调试：打印颜色分数
+    if (debug_count < 5 && score > 0.9) {
+      tools::logger()->info("[YOLOv5 Debug] color_scores: [{:.2f}, {:.2f}, {:.2f}, {:.2f}], max_id={}", 
+                            color_scores.at<float>(0, 0), color_scores.at<float>(0, 1), 
+                            color_scores.at<float>(0, 2), color_scores.at<float>(0, 3), _color_id);
+    }
 
     armor_key_points.push_back(
       cv::Point2f(output.at<float>(r, 0) / scale, output.at<float>(r, 1) / scale));
@@ -159,6 +183,11 @@ std::list<Armor> YOLOV5::parse(
   std::vector<int> indices;
   cv::dnn::NMSBoxes(boxes, confidences, score_threshold_, nms_threshold_, indices);
 
+  // 调试：打印 NMS 后的检测数量
+  if (debug_count < 6) {
+    tools::logger()->info("[YOLOv5 Debug] boxes before NMS: {}, after NMS: {}", boxes.size(), indices.size());
+  }
+
   std::list<Armor> armors;
   for (const auto & i : indices) {
     if (use_roi_) {
@@ -167,16 +196,28 @@ std::list<Armor> YOLOV5::parse(
     } else {
       armors.emplace_back(color_ids[i], num_ids[i], confidences[i], boxes[i], armors_key_points[i]);
     }
+    // 调试：打印每个检测的信息
+    if (debug_count < 6) {
+      tools::logger()->info("[YOLOv5 Debug] armor: color_id={}, num_id={}, conf={:.2f}", 
+                            color_ids[i], num_ids[i], confidences[i]);
+    }
   }
 
   tmp_img_ = bgr_img;
   for (auto it = armors.begin(); it != armors.end();) {
     if (!check_name(*it)) {
+      if (debug_count < 6) {
+        tools::logger()->info("[YOLOv5 Debug] armor filtered by check_name: name={}", static_cast<int>(it->name));
+      }
       it = armors.erase(it);
       continue;
     }
 
     if (!check_type(*it)) {
+      if (debug_count < 6) {
+        tools::logger()->info("[YOLOv5 Debug] armor filtered by check_type: type={}, name={}", 
+                              static_cast<int>(it->type), static_cast<int>(it->name));
+      }
       it = armors.erase(it);
       continue;
     }

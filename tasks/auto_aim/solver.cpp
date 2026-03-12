@@ -45,10 +45,16 @@ Solver::Solver(const std::string & config_path) : R_gimbal2world_(Eigen::Matrix3
 
 Eigen::Matrix3d Solver::R_gimbal2world() const { return R_gimbal2world_; }
 
-void Solver::set_R_gimbal2world(const Eigen::Quaterniond & q)
+void Solver::set_R_gimbal2world(const Eigen::Quaterniond & q, bool is_direct_gimbal2world)
 {
-  Eigen::Matrix3d R_imubody2imuabs = q.toRotationMatrix();
-  R_gimbal2world_ = R_gimbal2imubody_.transpose() * R_imubody2imuabs * R_gimbal2imubody_;
+  if (is_direct_gimbal2world) {
+    // 四元数已经是 gimbal 到 world 的直接旋转（如来自 gimbal_state 话题）
+    R_gimbal2world_ = q.toRotationMatrix();
+  } else {
+    // 四元数是 IMU body 到 IMU abs 的旋转，需要变换
+    Eigen::Matrix3d R_imubody2imuabs = q.toRotationMatrix();
+    R_gimbal2world_ = R_gimbal2imubody_.transpose() * R_imubody2imuabs * R_gimbal2imubody_;
+  }
 }
 
 //solvePnP（获得姿态）
@@ -64,8 +70,29 @@ void Solver::solve(Armor & armor) const
 
   Eigen::Vector3d xyz_in_camera;
   cv::cv2eigen(tvec, xyz_in_camera);
+  
+  // 【调试】PnP 解算结果 - 详细坐标链
+  static int pnp_debug_count = 0;
+  if (pnp_debug_count < 30 || pnp_debug_count % 50 == 0) {
+    tools::logger()->info("[PnP解算] ===== 装甲板 {} =====", auto_aim::ARMOR_NAMES[armor.name]);
+    tools::logger()->info("[PnP解算] 像素点: 左上({:.0f},{:.0f}) 右上({:.0f},{:.0f}) 右下({:.0f},{:.0f}) 左下({:.0f},{:.0f})",
+      armor.points[0].x, armor.points[0].y, armor.points[1].x, armor.points[1].y,
+      armor.points[2].x, armor.points[2].y, armor.points[3].x, armor.points[3].y);
+    tools::logger()->info("[PnP解算] 相机系: X={:.3f}m(右) Y={:.3f}m(下) Z={:.3f}m(前)",
+      xyz_in_camera[0], xyz_in_camera[1], xyz_in_camera[2]);
+  }
+  
   armor.xyz_in_gimbal = R_camera2gimbal_ * xyz_in_camera + t_camera2gimbal_;
   armor.xyz_in_world = R_gimbal2world_ * armor.xyz_in_gimbal;
+  
+  // 【调试】坐标系转换结果
+  if (pnp_debug_count < 30 || pnp_debug_count % 50 == 0) {
+    tools::logger()->info("[PnP解算] 云台系: X={:.3f}m(前) Y={:.3f}m(左) Z={:.3f}m(上)",
+      armor.xyz_in_gimbal[0], armor.xyz_in_gimbal[1], armor.xyz_in_gimbal[2]);
+    tools::logger()->info("[PnP解算] 世界系: X={:.3f}m Y={:.3f}m Z={:.3f}m",
+      armor.xyz_in_world[0], armor.xyz_in_world[1], armor.xyz_in_world[2]);
+    pnp_debug_count++;
+  }
 
   cv::Mat rmat;
   cv::Rodrigues(rvec, rmat);
@@ -77,6 +104,16 @@ void Solver::solve(Armor & armor) const
   armor.ypr_in_world = tools::eulers(R_armor2world, 2, 1, 0);
 
   armor.ypd_in_world = tools::xyz2ypd(armor.xyz_in_world);
+
+  // 【调试】球坐标系转换结果
+  static int ypd_debug_count = 0;
+  if (ypd_debug_count < 30 || ypd_debug_count % 50 == 0) {
+    tools::logger()->info("[PnP解算] 球坐标: yaw={:.2f}° pitch={:.2f}° 距离={:.2f}m",
+      armor.ypd_in_world[0] * 57.3, armor.ypd_in_world[1] * 57.3, armor.ypd_in_world[2]);
+    tools::logger()->info("[PnP解算] 装甲板姿态: yaw={:.2f}° pitch={:.2f}° roll={:.2f}°",
+      armor.ypr_in_world[0] * 57.3, armor.ypr_in_world[1] * 57.3, armor.ypr_in_world[2] * 57.3);
+    ypd_debug_count++;
+  }
 
   // 平衡不做yaw优化，因为pitch假设不成立
   auto is_balance = (armor.type == ArmorType::big) &&
